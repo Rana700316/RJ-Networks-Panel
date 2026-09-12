@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ur">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RJ Networks - Cloud Panel</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+:root{--navy:#062f62;--blue:#0878d1;--red:#dc1d2d;--bg:#eef4fb;--card:#fff;--line:#d9e4f0;--text:#18324f}
+*{box-sizing:border-box}body{margin:0;font-family:Segoe UI,Tahoma,Arial;background:var(--bg);color:var(--text)}
+button,input,select,textarea{font:inherit}button{cursor:pointer;border:0;border-radius:8px;padding:11px 15px;font-weight:700}
+.primary{background:var(--blue);color:#fff}.red{background:var(--red);color:#fff}.soft{background:#e8f0f8;color:var(--navy)}
+.header{background:linear-gradient(115deg,var(--navy),var(--blue),var(--red));color:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center}
+.brand{font-size:28px;font-weight:900}.brand small{display:block;font-size:12px;font-weight:500}
+.app{display:flex;min-height:calc(100vh - 78px)}.side{width:235px;background:#082f60;padding:14px}.side button{display:block;width:100%;margin:5px 0;text-align:left;background:transparent;color:#fff}.side button:hover{background:#1b5b99}.main{flex:1;padding:22px;min-width:0}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:18px;box-shadow:0 8px 22px rgba(10,45,90,.06)}
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}.c6{grid-column:span 6}.c4{grid-column:span 4}.c3{grid-column:span 3}.c12{grid-column:span 12}
+label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}input,select,textarea{width:100%;padding:10px 11px;border:1px solid #cbd8e6;border-radius:8px;background:#fff}
+.statgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}.num{font-size:28px;font-weight:900}
+.table{overflow:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{border-bottom:1px solid #e6edf4;padding:9px;text-align:left}th{background:#f7f9fc;font-size:12px}
+.hidden{display:none!important}.msg{margin-top:10px;padding:10px;border-radius:8px;background:#edf5ff}.err{background:#fff0f2;color:#b51727}.ok{background:#ecfbf3;color:#116f43}
+.login{max-width:760px;margin:60px auto;padding:20px}.login .card{padding:28px}
+@media(max-width:900px){.side{width:195px}.statgrid{grid-template-columns:repeat(2,1fr)}.c6,.c4,.c3{grid-column:span 6}}
+@media(max-width:650px){.app{display:block}.side{width:100%}.statgrid{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.c6,.c4,.c3,.c12{grid-column:span 1}.header{padding:14px}.brand{font-size:22px}}
+</style>
+</head>
+<body>
+<div id="loginPage">
+  <div class="header"><div class="brand">RJ NETWORKS<small>Fast • Reliable • Always Connected</small></div></div>
+  <div class="login">
+    <div class="card">
+      <h1>Secure Login</h1>
+      <p>Admin اور Worker اسی cloud system سے login کریں گے۔</p>
+      <div class="grid">
+        <div class="c6"><label>Email</label><input id="loginEmail" type="email"></div>
+        <div class="c6"><label>Password</label><input id="loginPassword" type="password"></div>
+      </div>
+      <button class="primary" style="margin-top:14px" onclick="login()">Login</button>
+      <div id="loginMsg" class="msg">پہلے config.js میں Supabase URL اور Publishable Key ڈالیں۔</div>
+    </div>
+  </div>
+</div>
+
+<div id="appPage" class="hidden">
+  <div class="header">
+    <div class="brand">RJ NETWORKS<small>Cloud Recovery & ISP Management</small></div>
+    <div><span id="who"></span> <button class="red" onclick="logout()">Logout</button></div>
+  </div>
+  <div class="app">
+    <aside class="side">
+      <button onclick="dashboard()">🏠 Dashboard</button>
+      <button class="admin" onclick="areas()">📍 Areas</button>
+      <button class="admin" onclick="workers()">👷 Workers</button>
+      <button class="admin" onclick="customerForm()">👤 Add Customer</button>
+      <button class="admin" onclick="importForm()">📥 Bulk Import</button>
+      <button onclick="customers()">📋 Customers</button>
+      <button onclick="payments()">💰 Recovery</button>
+      <button onclick="expiry()">⏰ Expiry Reminder</button>
+      <button onclick="complaints()">📝 Complaints</button>
+      <button class="admin" onclick="accounts()">🏦 Bank / JazzCash</button>
+    </aside>
+    <main id="main" class="main"></main>
+  </div>
+</div>
+
+<script>
+const cfg = window.RJ_CONFIG || {};
+const sb = window.supabase.createClient(cfg.SUPABASE_URL || "", cfg.SUPABASE_PUBLISHABLE_KEY || "");
+let session=null, profile=null;
+
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+function setMsg(id,text,ok=false){const el=document.getElementById(id);if(el){el.textContent=text;el.className="msg "+(ok?"ok":"err");}}
+function ready(){return cfg.SUPABASE_URL && cfg.SUPABASE_URL.includes("supabase.co") && cfg.SUPABASE_PUBLISHABLE_KEY && !cfg.SUPABASE_PUBLISHABLE_KEY.includes("PASTE_");}
+
+async function login(){
+ if(!ready()){setMsg("loginMsg","config.js میں اپنی Supabase URL اور Publishable Key ڈالیں۔");return;}
+ const email=loginEmail.value.trim(), password=loginPassword.value;
+ const {data,error}=await sb.auth.signInWithPassword({email,password});
+ if(error){setMsg("loginMsg",error.message);return;}
+ session=data.session;
+ const {data:p,error:pe}=await sb.from("profiles").select("full_name,role,phone").eq("id",session.user.id).single();
+ if(pe){await sb.auth.signOut();setMsg("loginMsg","Profile نہیں ملا۔ Supabase profiles میں role چیک کریں۔");return;}
+ profile=p;
+ document.getElementById("loginPage").classList.add("hidden");
+ document.getElementById("appPage").classList.remove("hidden");
+ who.textContent=(p.full_name||email)+" • "+p.role;
+ document.querySelectorAll(".admin").forEach(x=>x.classList.toggle("hidden",p.role!=="admin"));
+ dashboard();
+}
+async function logout(){await sb.auth.signOut();location.reload();}
+
+async function dashboard(){
+ main.innerHTML=`<div class="statgrid">
+ <div class="stat"><div>Customers</div><div id="sC" class="num">...</div></div>
+ <div class="stat"><div>Payments</div><div id="sP" class="num">...</div></div>
+ <div class="stat"><div>Expiry ≤ 2 days</div><div id="sE" class="num">...</div></div>
+ <div class="stat"><div>Open Complaints</div><div id="sM" class="num">...</div></div>
+ </div>
+ <div class="card"><h2>RJ Networks Cloud Dashboard</h2><p>Cloud database, recovery, expiry reminders اور complaints ایک جگہ۔</p></div>`;
+ let cq=sb.from("customers").select("id",{count:"exact",head:true});
+ if(profile.role==="worker"){
+   const {data:w}=await sb.from("workers").select("id").eq("auth_user_id",session.user.id).maybeSingle();
+   if(w)cq=cq.eq("worker_id",w.id);
+ }
+ const c=await cq; const p=await sb.from("payments").select("id",{count:"exact",head:true});
+ const e=await sb.from("expiry_reminders").select("id");
+ const m=await sb.from("complaints").select("id",{count:"exact",head:true}).in("status",["pending","in_progress"]);
+ sC.textContent=c.count||0;sP.textContent=p.count||0;sE.textContent=(e.data||[]).length;sM.textContent=m.count||0;
+}
+function areas(){
+ main.innerHTML=`<div class="card"><h2>Area / Street</h2><div class="grid"><div class="c6"><label>Area</label><input id="aName"></div><div class="c6"><label>Street</label><input id="aStreet"></div></div><button class="primary" onclick="saveArea()">Save Area</button></div>`;
+}
+async function saveArea(){const {error}=await sb.from("areas").insert({name:aName.value.trim(),street:aStreet.value.trim()});alert(error?error.message:"Area save ho gaya.");}
+
+function workers(){
+ main.innerHTML=`<div class="card"><h2>Worker</h2><p>Supabase Authentication میں Worker user پہلے create کریں۔ پھر یہاں اس user کی UUID، نام اور Area ID دیں۔</p><div class="grid">
+ <div class="c6"><label>Auth User UUID</label><input id="wAuth"></div>
+ <div class="c6"><label>Worker Name</label><input id="wName"></div>
+ <div class="c6"><label>Phone</label><input id="wPhone"></div>
+ <div class="c6"><label>Area ID</label><input id="wArea" type="number"></div>
+ </div><button class="primary" onclick="saveWorker()">Save Worker</button></div>`;
+}
+async function saveWorker(){const {error}=await sb.from("workers").insert({auth_user_id:wAuth.value.trim(),name:wName.value.trim(),phone:wPhone.value.trim(),area_id:wArea.value?Number(wArea.value):null});alert(error?error.message:"Worker save ho gaya.");}
+
+function customerForm(){
+ main.innerHTML=`<div class="card"><h2>Add New Customer</h2><div class="grid">
+ <div class="c6"><label>Customer ID *</label><input id="cId"></div><div class="c6"><label>Customer Name *</label><input id="cName"></div>
+ <div class="c6"><label>WhatsApp / Phone</label><input id="cPhone"></div><div class="c6"><label>Package</label><input id="cPackage" placeholder="20 MB"></div>
+ <div class="c6"><label>Monthly Fee *</label><input id="cFee" type="number"></div><div class="c6"><label>Expiry Date</label><input id="cExpiry" type="date"></div>
+ <div class="c6"><label>Area ID</label><input id="cArea" type="number"></div><div class="c6"><label>Street</label><input id="cStreet"></div>
+ <div class="c6"><label>IP Address *</label><input id="cIp" placeholder="192.168.1.10"></div><div class="c6"><label>MAC Address</label><input id="cMac"></div>
+ <div class="c6"><label>Worker ID</label><input id="cWorker" type="number"></div><div class="c6"><label>Latitude</label><input id="cLat"></div>
+ <div class="c6"><label>Longitude</label><input id="cLng"></div></div>
+ <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="primary" onclick="saveCustomer()">Save Customer</button><button class="soft" onclick="geo()">Get Current Location</button></div>
+ <div id="cMsg" class="msg">IP Address ضروری ہے۔</div></div>`;
+}
+function geo(){navigator.geolocation?.getCurrentPosition(p=>{cLat.value=p.coords.latitude;cLng.value=p.coords.longitude},e=>alert(e.message));}
+async function saveCustomer(){
+ const row={customer_id:cId.value.trim(),name:cName.value.trim(),phone:cPhone.value.trim(),package:cPackage.value.trim(),monthly_fee:Number(cFee.value||0),
+ expiry_date:cExpiry.value||null,area_id:cArea.value?Number(cArea.value):null,street:cStreet.value.trim(),ip_address:cIp.value.trim()||null,
+ mac_address:cMac.value.trim()||null,worker_id:cWorker.value?Number(cWorker.value):null,latitude:cLat.value?Number(cLat.value):null,longitude:cLng.value?Number(cLng.value):null};
+ const {error}=await sb.from("customers").insert(row);
+ setMsg("cMsg",error?error.message:"Customer cloud database میں save ہو گیا۔",!error);
+ if(!error)setTimeout(customers,400);
+}
+function importForm(){
+ main.innerHTML=`<div class="card"><h2>Bulk Customer Import</h2><p>ID|Name|Phone|Package|Fee|Expiry|AreaID|Street|IP|MAC|WorkerID</p>
+ <textarea id="bulk" rows="12" placeholder="RJ001|Ali|03001234567|20 MB|2000|2026-09-20|1|Street 1|192.168.1.10|AA:BB:CC:DD:EE:01|2"></textarea>
+ <button class="primary" onclick="bulkImport()">Import All</button><div id="bMsg" class="msg"></div></div>`;
+}
+async function bulkImport(){
+ const lines=bulk.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);let ok=0,bad=0;
+ for(const line of lines){
+  const a=line.split("|");if(a.length<11){bad++;continue}
+  const row={customer_id:a[0],name:a[1],phone:a[2],package:a[3],monthly_fee:Number(a[4]||0),expiry_date:a[5]||null,area_id:a[6]?Number(a[6]):null,street:a[7],ip_address:a[8]||null,mac_address:a[9]||null,worker_id:a[10]?Number(a[10]):null};
+  const {error}=await sb.from("customers").insert(row);error?bad++:ok++;
+ }
+ setMsg("bMsg",`Imported: ${ok} | Failed: ${bad}`,bad===0);
+}
+async function customers(){
+ main.innerHTML=`<div class="card"><div style="display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap"><h2>Customers</h2><input id="search" style="max-width:320px" placeholder="Search ID, name, phone, IP" oninput="filterCustomers()"></div><div id="ct" class="table"></div></div>`;
+ const {data,error}=await sb.from("customers").select("*").order("created_at",{ascending:false}).limit(1000);
+ if(error){ct.textContent=error.message;return} window.customerRows=data||[];filterCustomers();
+}
+function filterCustomers(){
+ const term=(document.getElementById("search")?.value||"").toLowerCase();
+ const rows=(window.customerRows||[]).filter(r=>Object.values(r).join(" ").toLowerCase().includes(term));
+ ct.innerHTML=`<table><tr><th>ID</th><th>Name</th><th>Phone</th><th>Package</th><th>Fee</th><th>Expiry</th><th>IP</th><th>MAC</th></tr>${rows.map(r=>`<tr><td>${esc(r.customer_id)}</td><td>${esc(r.name)}</td><td>${esc(r.phone)}</td><td>${esc(r.package)}</td><td>Rs ${esc(r.monthly_fee)}</td><td>${esc(r.expiry_date)}</td><td>${esc(r.ip_address)}</td><td>${esc(r.mac_address)}</td></tr>`).join("")}</table>`;
+}
+function payments(){
+ main.innerHTML=`<div class="card"><h2>Recovery / Payment</h2><div class="grid"><div class="c6"><label>Customer Database ID</label><input id="pCustomer" type="number"></div><div class="c6"><label>Amount</label><input id="pAmount" type="number"></div><div class="c6"><label>Method</label><select id="pMethod"><option>cash</option><option>bank</option><option>jazzcash</option><option>easypaisa</option></select></div><div class="c6"><label>Note</label><input id="pNote"></div></div><button class="primary" onclick="savePayment()">Receive Payment</button><div id="pMsg" class="msg"></div></div>`;
+}
+async function savePayment(){const {error}=await sb.from("payments").insert({customer_id:Number(pCustomer.value),amount:Number(pAmount.value),method:pMethod.value,received_by:session.user.id,note:pNote.value});setMsg("pMsg",error?error.message:"Payment save ho گئی۔",!error)}
+async function expiry(){
+ main.innerHTML=`<div class="card"><h2>Expiry Reminder</h2><p>Expiry آج سے 2 دن تک یا پہلے ہونے والے customers یہاں نظر آئیں گے۔</p><div id="ex"></div></div>`;
+ const {data,error}=await sb.from("expiry_reminders").select("*").order("expiry_date");
+ if(error){ex.textContent=error.message;return}
+ ex.innerHTML=(data||[]).map(r=>`<div class="card"><b>${esc(r.customer_id)} - ${esc(r.name)}</b><br>Phone: ${esc(r.phone)}<br>Expiry: ${esc(r.expiry_date)}<br>Fee: Rs ${esc(r.monthly_fee)}<br><span class="pill">${esc(r.reminder_status||"reminder")}</span></div>`).join("")||"No reminders.";
+}
+function complaints(){
+ main.innerHTML=`<div class="card"><h2>Complaint Center</h2><div class="grid"><div class="c4"><label>Name</label><input id="ccName"></div><div class="c4"><label>Phone</label><input id="ccPhone"></div><div class="c4"><label>Customer ID</label><input id="ccId"></div><div class="c12"><label>Complaint</label><textarea id="ccDesc"></textarea></div></div><button class="primary" onclick="submitComplaint()">Submit Complaint</button><div id="ccMsg" class="msg"></div></div><div class="card"><h3>Recent Complaints</h3><div id="cl"></div></div>`;
+ loadComplaints();
+}
+async function submitComplaint(){
+ const no="RJ-"+Date.now();const {error}=await sb.from("complaints").insert({complaint_no:no,customer_name:ccName.value.trim(),customer_phone:ccPhone.value.trim(),customer_id:ccId.value.trim(),description:ccDesc.value.trim()});
+ setMsg("ccMsg",error?error.message:`Complaint No: ${no}`,!error);if(!error)loadComplaints();
+}
+async function loadComplaints(){
+ const {data,error}=await sb.from("complaints").select("*").order("created_at",{ascending:false}).limit(100);
+ if(error){cl.textContent=error.message;return}cl.innerHTML=(data||[]).map(x=>`<div class="card"><b>${esc(x.complaint_no)}</b> — ${esc(x.status)}<br>${esc(x.customer_name||"")} ${esc(x.customer_phone||"")}<br>${esc(x.description)}</div>`).join("")||"No complaints.";
+}
+async function accounts(){
+ main.innerHTML=`<div class="card"><h2>Bank / JazzCash / Easypaisa</h2><div class="grid"><div class="c6"><label>Bank Account Title</label><input id="acTitle"></div><div class="c6"><label>Bank Account Number</label><input id="acNumber"></div><div class="c6"><label>JazzCash</label><input id="acJazz"></div><div class="c6"><label>Easypaisa</label><input id="acEasy"></div></div><button class="primary" onclick="saveAccounts()">Save Accounts</button></div>`;
+ const {data}=await sb.from("payment_accounts").select("*").order("id",{ascending:false}).limit(1);const a=data?.[0];
+ if(a){acTitle.value=a.bank_title||"";acNumber.value=a.bank_account||"";acJazz.value=a.jazzcash||"";acEasy.value=a.easypaisa||""}
+}
+async function saveAccounts(){const {error}=await sb.from("payment_accounts").insert({bank_title:acTitle.value,bank_account:acNumber.value,jazzcash:acJazz.value,easypaisa:acEasy.value});alert(error?error.message:"Payment accounts save ho گئی۔")}
+boot=async()=>{const {data}=await sb.auth.getSession();if(data.session){session=data.session;const {data:p}=await sb.from("profiles").select("full_name,role,phone").eq("id",session.user.id).single();if(p){profile=p;document.getElementById("loginPage").classList.add("hidden");document.getElementById("appPage").classList.remove("hidden");who.textContent=(p.full_name||"User")+" • "+p.role;document.querySelectorAll(".admin").forEach(x=>x.classList.toggle("hidden",p.role!=="admin"));dashboard()}}};
+boot();
+</script>
+</body>
+</html>
